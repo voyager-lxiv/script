@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS $TABLE_NAME_2 (
     m4a        INTEGER DEFAULT 0,
     opus       INTEGER DEFAULT 0,
     ogg        INTEGER DEFAULT 0,
-    wv         INTEGER DEFAULT 0
+    wv         INTEGER DEFAULT 0,
+    playlist   TEXT    DEFAULT 'nebula'
 );
 EOF
 

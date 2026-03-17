@@ -13,6 +13,7 @@ SYNC_ISRC_SCRIPT="$SCRIPT_DIR/sync_database_isrc.sh"
 SORT_QX_SCRIPT="$SCRIPT_DIR/sort_qx_map.sh"
 STREAM_CONVERT_SCRIPT="$SCRIPT_DIR/stream_convert.sh"
 STREAM_IMPORT_SCRIPT="$SCRIPT_DIR/stream_import.sh"
+SYNC_PLAYLIST_SCRIPT="$SCRIPT_DIR/sync_playlist.sh"
 
 # HELPERS
 log() { echo "[INFO] $*"; }
@@ -29,12 +30,13 @@ usage() {
     echo "  --sort_qx                   Sort ./export files into quality folders from tracks_isrc"
     echo "  --stream_convert [--lowpass] [--debug]  Convert flac to opus using quality from tracks_isrc"
     echo "  --stream_import  [--hybrid]  [--debug]  Convert files to WavPack in ./import/raw"
+    echo "  --sync_playlist                         Generate M3U8 playlist files from tracks_isrc"
     echo "  --help                      Show this help message"
     exit 0
 }
 
 # ARGUMENT PARSING
-[[ $# -eq 0 ]] && { err "No argument provided. Use --create, --scan, --scan_trash, --sync_isrc, --sort_qx, --stream_convert, --stream_import, or --help."; }
+[[ $# -eq 0 ]] && { err "No argument provided. Use --create, --scan, --scan_trash, --sync_isrc, --sort_qx, --stream_convert, --stream_import, --sync_playlist, or --help."; }
 
 case "$1" in
     --create)
@@ -73,10 +75,15 @@ case "$1" in
         log "Running stream import..."
         bash "$STREAM_IMPORT_SCRIPT" "${@:2}"
         ;;
+    --sync_playlist)
+        [[ -f "$SYNC_PLAYLIST_SCRIPT" ]] || err "sync_playlist.sh not found at: $SYNC_PLAYLIST_SCRIPT"
+        log "Running playlist sync..."
+        bash "$SYNC_PLAYLIST_SCRIPT" "${@:2}"
+        ;;
     --help|-h)
         usage
         ;;
     *)
-        err "Unknown option: '$1'. Use --create, --scan, --scan_trash, --sync_isrc, --sort_qx, --stream_convert, --stream_import, or --help."
+        err "Unknown option: '$1'. Use --create, --scan, --scan_trash, --sync_isrc, --sort_qx, --stream_convert, --stream_import, --sync_playlist, or --help."
         ;;
 esac
