@@ -16,10 +16,20 @@ OUTPUT_ROOT="./export/tag/m4a"
 DATABASE_FILE="./playlist/music_metadata.db"
 TABLE_NAME_2="tracks_isrc"
 ISRC_REGEX='\[([A-Za-z0-9]+)\]'
+CURRENT_TMP=""
 
 # HELPERS
 log() { echo "[INFO] $*"; }
 err() { echo "[ERROR] $*" >&2; exit 1; }
+
+# TRAP: remove temp file if interrupted mid-conversion
+cleanup() {
+    if [[ -n "$CURRENT_TMP" && -f "$CURRENT_TMP" ]]; then
+        echo "[ABORT] Removing incomplete file: $CURRENT_TMP"
+        rm -f "$CURRENT_TMP"
+    fi
+}
+trap cleanup EXIT INT TERM
 
 # PRE-FLIGHT
 command -v sqlite3 &>/dev/null || err "sqlite3 is not installed."
@@ -37,7 +47,7 @@ get_bitrate() {
         q5) echo "128k" ;;
         q6) echo "96k"  ;;
         q7) echo "64k"  ;;
-        *)  echo "320k"  ;;
+        *)  echo "320k" ;;
     esac
 }
 
@@ -104,7 +114,7 @@ while IFS= read -r -d '' INPUT; do
         REL="${INPUT#"$INPUT_ROOT_WV"/}"
     fi
 
-    # extract q-folder from input path (always present)
+    # extract q-folder from input path
     INPUT_Q="$(echo "$REL" | cut -d'/' -f1)"
     while [[ "$REL" =~ ^q[^/]+/ ]]; do
         REL="${REL#*/}"
@@ -148,7 +158,9 @@ while IFS= read -r -d '' INPUT; do
     echo "[CONVERT] ${QTAG} (${BITRATE}) | $FILE"
     mkdir -p "$OUTPUT_DIR"
 
-    # encode M4A
+    # encode to temp file first — moved to final path only on full success
+    CURRENT_TMP="${OUTPUT_PATH}.tmp"
+
     ffmpeg -nostdin -y -hide_banner -loglevel error \
         -i "$INPUT" \
         -map 0:a \
@@ -159,7 +171,8 @@ while IFS= read -r -d '' INPUT; do
         -disposition:v attached_pic \
         -map_metadata 0 \
         -movflags +faststart \
-        "$OUTPUT_PATH"
+        -f mp4 \
+        "$CURRENT_TMP"
 
     # embed artwork via mutagen
     COVER_TMP="$(mktemp /tmp/cover_XXXXXX.jpg)"
@@ -171,12 +184,16 @@ python3 <<PYEOF
 from mutagen.mp4 import MP4, MP4Cover
 with open(r"""$COVER_TMP""", "rb") as f:
     cover_data = f.read()
-audio = MP4(r"""$OUTPUT_PATH""")
+audio = MP4(r"""$CURRENT_TMP""")
 audio["covr"] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
 audio.save()
 PYEOF
     fi
     rm -f "$COVER_TMP"
+
+    # atomic move: only place final file if everything succeeded
+    mv "$CURRENT_TMP" "$OUTPUT_PATH"
+    CURRENT_TMP=""
 
     ((count_converted++)) || true
 
