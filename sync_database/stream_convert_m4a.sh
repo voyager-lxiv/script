@@ -2,7 +2,7 @@
 # stream_convert_m4a.sh - Converts flac files to M4A/AAC.
 # Input:  ./export/tag/flac
 # Output: ./export/tag/m4a
-# Default: quality from filename q-folder; --dynamic: quality from tracks_isrc table
+# Default: qx/256k; --dynamic: quality per-track from tracks_isrc table
 
 set -euo pipefail
 
@@ -23,7 +23,7 @@ ISRC_REGEX='\[([A-Za-z0-9]+)\]'
 log() { echo "[INFO] $*"; }
 err() { echo "[ERROR] $*" >&2; exit 1; }
 
-# QUALITY → BITRATE (matches quality field in tracks_isrc)
+# QUALITY → BITRATE
 get_bitrate() {
     case "$1" in
         q1) echo "320k" ;;
@@ -66,7 +66,11 @@ if [[ "$DYNAMIC" -eq 1 ]]; then
     [[ -f "$DATABASE_FILE" ]] || err "Database not found: $DATABASE_FILE"
 fi
 
-log "Mode: $([ "$DYNAMIC" -eq 1 ] && echo "dynamic (quality from DB)" || echo "static (quality from folder)")"
+if [[ "$DYNAMIC" -eq 1 ]]; then
+    log "Mode: dynamic (quality from DB)"
+else
+    log "Mode: static (qx / 256k)"
+fi
 
 count_converted=0
 count_skipped=0
@@ -77,16 +81,12 @@ while IFS= read -r -d '' INPUT; do
 
     FILE="$(basename "$INPUT")"
 
-    # strip input root and any leading q-folder to get clean relative path
+    # strip input root to get relative path (no q-folder stripping)
     REL="${INPUT#"$INPUT_ROOT"/}"
-    while [[ "$REL" =~ ^q[^/]+/ ]]; do
-        REL="${REL#*/}"
-    done
     BASENAME_NOEXT="${REL%.*}"
 
     # determine quality
     if [[ "$DYNAMIC" -eq 1 ]]; then
-        # extract ISRC from filename
         if [[ "$FILE" =~ $ISRC_REGEX ]]; then
             ISRC="${BASH_REMATCH[1]}"
         else
@@ -104,7 +104,6 @@ while IFS= read -r -d '' INPUT; do
             continue
         fi
     else
-        # static mode: always use qx
         QTAG="qx"
     fi
 
@@ -154,20 +153,20 @@ while IFS= read -r -d '' INPUT; do
         -movflags +faststart \
         "$OUTPUT_PATH"
 
-    # embed artwork via mutagen if ffmpeg didn't carry it
+    # embed artwork via mutagen
     COVER_TMP="$(mktemp /tmp/cover_XXXXXX.jpg)"
     ffmpeg -nostdin -y -hide_banner -loglevel error \
         -i "$INPUT" -an -c:v mjpeg "$COVER_TMP" 2>/dev/null || true
 
     if [[ -s "$COVER_TMP" ]]; then
-        python3 << EOF
+        python3 << PYEOF
 from mutagen.mp4 import MP4, MP4Cover
 with open(r"""$COVER_TMP""", "rb") as f:
     cover_data = f.read()
 audio = MP4(r"""$OUTPUT_PATH""")
 audio["covr"] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
 audio.save()
-EOF
+PYEOF
     fi
     rm -f "$COVER_TMP"
 
