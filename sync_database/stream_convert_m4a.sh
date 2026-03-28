@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# stream_convert_m4a.sh - Converts flac files to M4A/AAC.
-# Input:  ./export/tag/flac
-# Output: ./export/tag/m4a
-# Default: qx/256k; --dynamic: quality per-track from tracks_isrc table
+# stream_convert_m4a.sh - Converts flac/wv files to M4A/AAC based on quality from tracks_isrc table.
 
 set -euo pipefail
 
@@ -13,15 +10,22 @@ set -euo pipefail
 }
 
 # CONFIG
-INPUT_ROOT="./export/tag/flac"
+INPUT_ROOT_FLAC="./export/tag/flac"
+INPUT_ROOT_WV="./export/tag/wv"
 OUTPUT_ROOT="./export/tag/m4a"
 DATABASE_FILE="./playlist/music_metadata.db"
-TABLE_ISRC="tracks_isrc"
+TABLE_NAME_2="tracks_isrc"
 ISRC_REGEX='\[([A-Za-z0-9]+)\]'
 
 # HELPERS
 log() { echo "[INFO] $*"; }
 err() { echo "[ERROR] $*" >&2; exit 1; }
+
+# PRE-FLIGHT
+command -v sqlite3 &>/dev/null || err "sqlite3 is not installed."
+command -v ffmpeg  &>/dev/null || err "ffmpeg is not installed."
+command -v python3 &>/dev/null || err "python3 is not installed."
+[[ -f "$DATABASE_FILE" ]]      || err "Database not found: $DATABASE_FILE"
 
 # QUALITY → BITRATE
 get_bitrate() {
@@ -33,7 +37,7 @@ get_bitrate() {
         q5) echo "128k" ;;
         q6) echo "96k"  ;;
         q7) echo "64k"  ;;
-        qx) echo "256k" ;;
+        *)  echo "320k"  ;;
     esac
 }
 
@@ -57,56 +61,59 @@ for arg in "$@"; do
     esac
 done
 
-# PRE-FLIGHT
-command -v sqlite3 &>/dev/null || err "sqlite3 is not installed."
-command -v ffmpeg  &>/dev/null || err "ffmpeg is not installed."
-command -v python3 &>/dev/null || err "python3 is not installed."
-[[ -d "$INPUT_ROOT" ]] || err "Input directory not found: $INPUT_ROOT"
-if [[ "$DYNAMIC" -eq 1 ]]; then
-    [[ -f "$DATABASE_FILE" ]] || err "Database not found: $DATABASE_FILE"
-fi
-
-if [[ "$DYNAMIC" -eq 1 ]]; then
-    log "Mode: dynamic (quality from DB)"
-else
-    log "Mode: static (qx / 256k)"
-fi
-
+# CONVERT
 count_converted=0
 count_skipped=0
 count_removed=0
 count_no_entry=0
 
+if [[ "$DEBUG" -eq 1 ]]; then
+    total_flac=$(find "$INPUT_ROOT_FLAC" -type f -iname "*.flac" 2>/dev/null | wc -l)
+    total_wv=$(find "$INPUT_ROOT_WV"     -type f -iname "*.wv"   2>/dev/null | wc -l)
+    log "DEBUG: INPUT_ROOT_FLAC=$INPUT_ROOT_FLAC (flac files: $total_flac)"
+    log "DEBUG: INPUT_ROOT_WV=$INPUT_ROOT_WV (wv files: $total_wv)"
+fi
+
 while IFS= read -r -d '' INPUT; do
 
     FILE="$(basename "$INPUT")"
 
-    # strip input root, then strip leading q-folder
-    REL="${INPUT#"$INPUT_ROOT"/}"
-    REL="${REL#*/}"
-    BASENAME_NOEXT="${REL%.*}"
+    # extract ISRC from filename
+    if [[ "$FILE" =~ $ISRC_REGEX ]]; then
+        ISRC="${BASH_REMATCH[1]}"
+    else
+        [[ "$DEBUG" -eq 1 ]] && echo "[SKIP] no ISRC in filename: $FILE"
+        continue
+    fi
 
-    # determine quality
+    # get quality
     if [[ "$DYNAMIC" -eq 1 ]]; then
-        if [[ "$FILE" =~ $ISRC_REGEX ]]; then
-            ISRC="${BASH_REMATCH[1]}"
-        else
-            [[ "$DEBUG" -eq 1 ]] && echo "[SKIP] no ISRC in filename: $FILE"
-            ((count_no_entry++)) || true
-            continue
-        fi
-
         QTAG=$(sqlite3 -noheader "$DATABASE_FILE" \
-            "PRAGMA busy_timeout=5000;" \
-            "SELECT quality FROM $TABLE_ISRC WHERE isrc='$ISRC' LIMIT 1;")
-
+            "SELECT quality FROM $TABLE_NAME_2 WHERE isrc='$ISRC' LIMIT 1;")
         if [[ -z "$QTAG" ]]; then
             [[ "$DEBUG" -eq 1 ]] && echo "[NO ENTRY] $ISRC | $FILE"
             ((count_no_entry++)) || true
             continue
         fi
+    fi
+
+    # relative path from input root, strip any leading q-folder
+    if [[ "$INPUT" == "$INPUT_ROOT_FLAC"* ]]; then
+        REL="${INPUT#"$INPUT_ROOT_FLAC"/}"
     else
-        QTAG="qx"
+        REL="${INPUT#"$INPUT_ROOT_WV"/}"
+    fi
+
+    # extract q-folder from input path (always present)
+    INPUT_Q="$(echo "$REL" | cut -d'/' -f1)"
+    while [[ "$REL" =~ ^q[^/]+/ ]]; do
+        REL="${REL#*/}"
+    done
+    BASENAME_NOEXT="${REL%.*}"
+
+    # static: use q-folder from input; dynamic: use quality from DB
+    if [[ "$DYNAMIC" -eq 0 ]]; then
+        QTAG="$INPUT_Q"
     fi
 
     BITRATE="$(get_bitrate "$QTAG")"
@@ -127,7 +134,6 @@ while IFS= read -r -d '' INPUT; do
 
     # same quality and file exists — skip
     if [[ -n "$EXISTING_FILE" && "$EXISTING_Q" == "$QTAG" ]]; then
-        [[ "$DEBUG" -eq 1 ]] && echo "[SKIP] $FILE"
         ((count_skipped++)) || true
         continue
     fi
@@ -139,7 +145,7 @@ while IFS= read -r -d '' INPUT; do
         ((count_removed++)) || true
     fi
 
-    echo "[CONVERT] $QTAG ($BITRATE) | $FILE"
+    echo "[CONVERT] ${QTAG} (${BITRATE}) | $FILE"
     mkdir -p "$OUTPUT_DIR"
 
     # encode M4A
@@ -161,7 +167,7 @@ while IFS= read -r -d '' INPUT; do
         -i "$INPUT" -an -c:v mjpeg "$COVER_TMP" 2>/dev/null || true
 
     if [[ -s "$COVER_TMP" ]]; then
-        python3 << PYEOF
+python3 <<PYEOF
 from mutagen.mp4 import MP4, MP4Cover
 with open(r"""$COVER_TMP""", "rb") as f:
     cover_data = f.read()
@@ -174,6 +180,9 @@ PYEOF
 
     ((count_converted++)) || true
 
-done < <(find "$INPUT_ROOT" -type f -iname "*.flac" -print0 2>/dev/null)
+done < <(
+    { [[ -d "$INPUT_ROOT_FLAC" ]] && find "$INPUT_ROOT_FLAC" -type f -iname "*.flac" -print0; } 2>/dev/null
+    { [[ -d "$INPUT_ROOT_WV"   ]] && find "$INPUT_ROOT_WV"   -type f -iname "*.wv"   -print0; } 2>/dev/null
+)
 
 log "Done. Converted: $count_converted | Skipped: $count_skipped | Removed old: $count_removed | No entry: $count_no_entry"
