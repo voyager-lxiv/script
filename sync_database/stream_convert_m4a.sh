@@ -81,8 +81,9 @@ while IFS= read -r -d '' INPUT; do
 
     FILE="$(basename "$INPUT")"
 
-    # strip input root to get relative path (no q-folder stripping)
+    # strip input root, then strip leading q-folder
     REL="${INPUT#"$INPUT_ROOT"/}"
+    REL="${REL#*/}"
     BASENAME_NOEXT="${REL%.*}"
 
     # determine quality
