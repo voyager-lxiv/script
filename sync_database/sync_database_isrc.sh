@@ -97,7 +97,7 @@ WHERE NOT EXISTS (
 );
 EOF
 
-# UPDATE FORMAT FIELDS (flac, m4a, opus, ogg)
+# UPDATE FORMAT FIELDS (flac, m4a, opus, mp3)
 # mark 1 if a non-trash filepath with that extension exists for this ISRC
 log "Updating format fields..."
 
@@ -125,10 +125,10 @@ SET
           AND t.filepath NOT LIKE './trash/%'
     ) THEN 1 ELSE 0 END,
 
-    ogg = CASE WHEN EXISTS (
+    mp3 = CASE WHEN EXISTS (
         SELECT 1 FROM $TABLE_NAME_1 t
         WHERE t.isrc = $TABLE_NAME_2.isrc
-          AND t.filepath LIKE '%.ogg'
+          AND t.filepath LIKE '%.mp3'
           AND t.filepath NOT LIKE './trash/%'
     ) THEN 1 ELSE 0 END,
 
