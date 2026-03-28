@@ -31,7 +31,6 @@ trap cleanup EXIT INT TERM
 
 # PRE-FLIGHT
 command -v ffmpeg  &>/dev/null || err "ffmpeg is not installed."
-command -v python3 &>/dev/null || err "python3 is not installed."
 
 # QUALITY → BITRATE
 get_bitrate() {
@@ -119,23 +118,6 @@ while IFS= read -r -d '' INPUT; do
 
     mv "$CURRENT_TMP" "$OUTPUT_PATH"
     CURRENT_TMP=""
-
-    # embed artwork via mutagen
-    COVER_TMP="$(mktemp /tmp/cover_XXXXXX.jpg)"
-    ffmpeg -nostdin -y -hide_banner -loglevel error \
-        -i "$INPUT" -an -c:v mjpeg "$COVER_TMP" 2>/dev/null || true
-
-    if [[ -s "$COVER_TMP" ]]; then
-python3 <<PYEOF
-from mutagen.mp4 import MP4, MP4Cover
-with open(r"""$COVER_TMP""", "rb") as f:
-    cover_data = f.read()
-audio = MP4(r"""$OUTPUT_PATH""")
-audio["covr"] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
-audio.save()
-PYEOF
-    fi
-    rm -f "$COVER_TMP"
 
     ((count_converted++)) || true
 
