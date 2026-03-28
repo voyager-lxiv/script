@@ -30,7 +30,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # PRE-FLIGHT
-command -v ffmpeg &>/dev/null || err "ffmpeg is not installed."
+command -v ffmpeg  &>/dev/null || err "ffmpeg is not installed."
+command -v python3 &>/dev/null || err "python3 is not installed."
 
 # QUALITY → BITRATE
 get_bitrate() {
@@ -118,6 +119,34 @@ while IFS= read -r -d '' INPUT; do
 
     mv "$CURRENT_TMP" "$OUTPUT_PATH"
     CURRENT_TMP=""
+
+    # embed artwork via mutagen
+    COVER_TMP="$(mktemp /tmp/cover_XXXXXX.jpg)"
+    ffmpeg -nostdin -y -hide_banner -loglevel error \
+        -i "$INPUT" -an -c:v mjpeg "$COVER_TMP" 2>/dev/null || true
+
+    if [[ -s "$COVER_TMP" ]]; then
+python3 <<PYEOF
+from mutagen.mp3 import MP3
+from mutagen.id3 import ID3, APIC, error
+audio = MP3(r"""$OUTPUT_PATH""", ID3=ID3)
+try:
+    audio.add_tags()
+except error:
+    pass
+with open(r"""$COVER_TMP""", "rb") as f:
+    cover_data = f.read()
+audio.tags.add(APIC(
+    encoding=3,
+    mime="image/jpeg",
+    type=3,
+    desc="Cover",
+    data=cover_data
+))
+audio.save()
+PYEOF
+    fi
+    rm -f "$COVER_TMP"
 
     ((count_converted++)) || true
 
