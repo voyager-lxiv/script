@@ -30,8 +30,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # PRE-FLIGHT
-command -v ffmpeg  &>/dev/null || err "ffmpeg is not installed."
-command -v python3 &>/dev/null || err "python3 is not installed."
+command -v ffmpeg &>/dev/null || err "ffmpeg is not installed."
 
 # QUALITY → BITRATE
 get_bitrate() {
@@ -61,20 +60,19 @@ DEBUG=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -q)
-            shift
-            [[ -z "${1:-}" ]] && err "-q requires a value (q1-q7, qx)"
-            QTAG="$1"
+            [[ -z "${2:-}" ]] && err "-q requires a value (q1-q7, qx)"
+            QTAG="$2"
+            shift 2
             ;;
-        --debug)   DEBUG=1 ;;
+        --debug)   DEBUG=1; shift ;;
         --help|-h) usage ;;
         *) err "Unknown option: $1" ;;
     esac
-    shift
 done
 
 # validate quality
-get_bitrate "$QTAG" > /dev/null 2>&1 || err "Invalid quality: $QTAG (use q1-q7 or qx)"
 BITRATE="$(get_bitrate "$QTAG")"
+[[ -z "$BITRATE" ]] && err "Invalid quality: $QTAG (use q1-q7 or qx)"
 
 [[ -d "$INPUT_ROOT" ]] || err "Input directory not found: $INPUT_ROOT"
 
@@ -117,34 +115,6 @@ while IFS= read -r -d '' INPUT; do
         -id3v2_version 3 \
         -f mp3 \
         "$CURRENT_TMP"
-
-    # embed artwork via mutagen
-    COVER_TMP="$(mktemp /tmp/cover_XXXXXX.jpg)"
-    ffmpeg -nostdin -y -hide_banner -loglevel error \
-        -i "$INPUT" -an -c:v mjpeg "$COVER_TMP" 2>/dev/null || true
-
-    if [[ -s "$COVER_TMP" ]]; then
-        python3 <<PYEOF
-from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, APIC, error
-audio = MP3(r"""$CURRENT_TMP""", ID3=ID3)
-try:
-    audio.add_tags()
-except error:
-    pass
-with open(r"""$COVER_TMP""", "rb") as f:
-    cover_data = f.read()
-audio.tags.add(APIC(
-    encoding=3,
-    mime="image/jpeg",
-    type=3,
-    desc="Cover",
-    data=cover_data
-))
-audio.save()
-PYEOF
-    fi
-    rm -f "$COVER_TMP"
 
     mv "$CURRENT_TMP" "$OUTPUT_PATH"
     CURRENT_TMP=""
