@@ -97,7 +97,8 @@ while IFS= read -r -d '' INPUT; do
         fi
 
         QTAG=$(sqlite3 -noheader "$DATABASE_FILE" \
-            "PRAGMA busy_timeout=5000; SELECT quality FROM $TABLE_ISRC WHERE isrc='$ISRC' LIMIT 1;")
+            "PRAGMA busy_timeout=5000;" \
+            "SELECT quality FROM $TABLE_ISRC WHERE isrc='$ISRC' LIMIT 1;")
 
         if [[ -z "$QTAG" ]]; then
             [[ "$DEBUG" -eq 1 ]] && echo "[NO ENTRY] $ISRC | $FILE"
