@@ -12,8 +12,6 @@ SCAN_DELETE_SCRIPT="$SCRIPT_DIR/scan_filesystem_trash.sh"
 SYNC_ISRC_SCRIPT="$SCRIPT_DIR/sync_database_isrc.sh"
 SORT_QX_SCRIPT="$SCRIPT_DIR/sort_qx_map.sh"
 STREAM_CONVERT_SCRIPT="$SCRIPT_DIR/stream_convert.sh"
-STREAM_CONVERT_MP3_SCRIPT="$SCRIPT_DIR/stream_convert/mp3.sh"
-STREAM_CONVERT_M4A_SCRIPT="$SCRIPT_DIR/stream_convert/m4a.sh"
 STREAM_IMPORT_SCRIPT="$SCRIPT_DIR/stream_import.sh"
 SYNC_PLAYLIST_SCRIPT="$SCRIPT_DIR/sync_playlist.sh"
 
@@ -30,7 +28,7 @@ usage() {
     echo "  --scan_trash                Mark missing files in DB with ./trash/ prefix"
     echo "  --sync_isrc                 Sync ISRC table from tracks and update audio_data status"
     echo "  --sort_qx                   Sort ./export files into quality folders from tracks_isrc"
-    echo "  --stream_convert [-f mp3|m4a] [opts]    Convert files: opus (default), mp3, or m4a"
+    echo "  --stream_convert [--lowpass] [--debug]  Convert flac to opus using quality from tracks_isrc"
     echo "  --stream_import  [--hybrid]  [--debug]  Convert files to WavPack in ./import/raw"
     echo "  --sync_playlist                         Generate M3U8 playlist files from tracks_isrc"
     echo "  --help                      Show this help message"
@@ -68,28 +66,9 @@ case "$1" in
         bash "$SORT_QX_SCRIPT" --sort
         ;;
     --stream_convert)
-        FORMAT="${2:-}"
-        if [[ "$FORMAT" == "-f" ]]; then
-            case "${3:-}" in
-                mp3)
-                    [[ -f "$STREAM_CONVERT_MP3_SCRIPT" ]] || err "mp3.sh not found at: $STREAM_CONVERT_MP3_SCRIPT"
-                    log "Running stream convert (mp3)..."
-                    bash "$STREAM_CONVERT_MP3_SCRIPT" "${@:4}"
-                    ;;
-                m4a)
-                    [[ -f "$STREAM_CONVERT_M4A_SCRIPT" ]] || err "m4a.sh not found at: $STREAM_CONVERT_M4A_SCRIPT"
-                    log "Running stream convert (m4a)..."
-                    bash "$STREAM_CONVERT_M4A_SCRIPT" "${@:4}"
-                    ;;
-                *)
-                    err "Unknown format '${3:-}'. Use -f mp3 or -f m4a."
-                    ;;
-            esac
-        else
-            [[ -f "$STREAM_CONVERT_SCRIPT" ]] || err "stream_convert.sh not found at: $STREAM_CONVERT_SCRIPT"
-            log "Running stream convert (opus)..."
-            bash "$STREAM_CONVERT_SCRIPT" "${@:2}"
-        fi
+        [[ -f "$STREAM_CONVERT_SCRIPT" ]] || err "stream_convert.sh not found at: $STREAM_CONVERT_SCRIPT"
+        log "Running stream convert..."
+        bash "$STREAM_CONVERT_SCRIPT" "${@:2}"
         ;;
     --stream_import)
         [[ -f "$STREAM_IMPORT_SCRIPT" ]] || err "stream_import.sh not found at: $STREAM_IMPORT_SCRIPT"
